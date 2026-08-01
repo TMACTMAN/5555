@@ -30,7 +30,10 @@ export type EventType =
   | 'TRAVEL_DELAYED'
   | 'TRAVEL_COMPLETED'
   | 'TRAVEL_FAILED'
-  | 'TRANSACTION_CANCELLED';
+  | 'TRANSACTION_CANCELLED'
+  | 'WORLD_STATE'
+  | 'DEPENDENCY_INVALIDATED'
+  | 'HISTORY_LOCKED';
 
 export type RelationType = 'ALLY' | 'ENEMY' | 'NEUTRAL' | 'FAMILY' | 'BUSINESS';
 export type SimulationLevel = 0 | 1 | 2 | 3 | 4;
@@ -43,6 +46,7 @@ export interface WorldSnapshot {
   created_at: string;
   world_name: string;
   world_description: string;
+  world_creation_state?: 'UNSELECTED' | 'CREATED';
   seed: number;
   world_facts_count: number;
   characters_count: number;

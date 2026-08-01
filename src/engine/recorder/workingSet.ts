@@ -2,6 +2,10 @@ import { Character, Location, Organization, Seed, HiddenTruth, WorldSnapshot, Wo
 import { WorldRepository } from '../world/worldRepository';
 import { RecorderError } from './recorderErrors';
 import { globalWorld } from '../worldState';
+import { DependencyEdge } from '../dependency/dependencyTypes';
+import { DependencyRepository } from '../dependency/dependencyRepository';
+import { ObservedHistoryRecord } from '../history/observedHistoryTypes';
+import { ObservedHistoryRepository } from '../history/observedHistoryRepository';
 
 function deepClone<T>(obj: T): T {
   if (obj === undefined || obj === null) return obj;
@@ -16,6 +20,8 @@ export class RecorderWorkingSet {
   private truths = new Map<string, HiddenTruth>();
   private transactions = new Map<string, WorldTransaction>();
   private checkpoints = new Map<string, ScheduledCheckpoint>();
+  private dependencies = new Map<string, DependencyEdge>();
+  private observations = new Map<string, ObservedHistoryRecord>();
 
   private originalCharacters = new Map<string, Character>();
   private originalLocations = new Map<string, Location>();
@@ -24,6 +30,8 @@ export class RecorderWorkingSet {
   private originalTruths = new Map<string, HiddenTruth>();
   private originalTransactions = new Map<string, WorldTransaction>();
   private originalCheckpoints = new Map<string, ScheduledCheckpoint>();
+  private originalDependencies = new Map<string, DependencyEdge>();
+  private originalObservations = new Map<string, ObservedHistoryRecord>();
 
   private originalSnapshot?: WorldSnapshot;
   private workingSnapshot?: WorldSnapshot;
@@ -35,6 +43,8 @@ export class RecorderWorkingSet {
   private dirtyTruthIds = new Set<string>();
   private dirtyTransactionIds = new Set<string>();
   private dirtyCheckpointIds = new Set<string>();
+  private dirtyDependencyIds = new Set<string>();
+  private dirtyObservationIds = new Set<string>();
 
   constructor(public readonly worldId: string) {}
 
@@ -362,6 +372,94 @@ export class RecorderWorkingSet {
 
   public getDirtyCheckpoints(): ScheduledCheckpoint[] {
     return Array.from(this.dirtyCheckpointIds).map((id) => this.checkpoints.get(id)!);
+  }
+
+  public async getDependency(id: string): Promise<DependencyEdge> {
+    if (this.dependencies.has(id)) {
+      return this.dependencies.get(id)!;
+    }
+    const fromRepo = await DependencyRepository.getDependency(this.worldId, id);
+    if (!fromRepo) {
+      throw new RecorderError('DEPENDENCY_NOT_FOUND', `Dependency [${id}] not found in world [${this.worldId}]`);
+    }
+    const origCopy = deepClone(fromRepo);
+    const workCopy = deepClone(fromRepo);
+    this.originalDependencies.set(id, origCopy);
+    this.dependencies.set(id, workCopy);
+    return workCopy;
+  }
+
+  public getOriginalDependency(id: string): DependencyEdge | undefined {
+    return this.originalDependencies.get(id);
+  }
+
+  public markDependencyDirty(id: string): void {
+    this.dirtyDependencyIds.add(id);
+  }
+
+  public addDependency(edge: DependencyEdge): DependencyEdge {
+    const copy = deepClone(edge);
+    this.dependencies.set(copy.id, copy);
+    this.dirtyDependencyIds.add(copy.id);
+    return copy;
+  }
+
+  public async assertDependencyDoesNotExist(id: string, proposalId?: string): Promise<void> {
+    if (this.dependencies.has(id)) {
+      throw new RecorderError('DUPLICATE_ENTITY_ID', `Dependency [${id}] already exists`, proposalId);
+    }
+    const fromRepo = await DependencyRepository.getDependency(this.worldId, id);
+    if (fromRepo) {
+      throw new RecorderError('DUPLICATE_ENTITY_ID', `Dependency [${id}] already exists`, proposalId);
+    }
+  }
+
+  public getDirtyDependencies(): DependencyEdge[] {
+    return Array.from(this.dirtyDependencyIds).map((id) => this.dependencies.get(id)!);
+  }
+
+  public async getObservation(id: string): Promise<ObservedHistoryRecord> {
+    if (this.observations.has(id)) {
+      return this.observations.get(id)!;
+    }
+    const fromRepo = await ObservedHistoryRepository.getObservation(this.worldId, id);
+    if (!fromRepo) {
+      throw new RecorderError('OBSERVATION_NOT_FOUND', `Observation [${id}] not found in world [${this.worldId}]`);
+    }
+    const origCopy = deepClone(fromRepo);
+    const workCopy = deepClone(fromRepo);
+    this.originalObservations.set(id, origCopy);
+    this.observations.set(id, workCopy);
+    return workCopy;
+  }
+
+  public getOriginalObservation(id: string): ObservedHistoryRecord | undefined {
+    return this.originalObservations.get(id);
+  }
+
+  public markObservationDirty(id: string): void {
+    this.dirtyObservationIds.add(id);
+  }
+
+  public addObservation(record: ObservedHistoryRecord): ObservedHistoryRecord {
+    const copy = deepClone(record);
+    this.observations.set(copy.id, copy);
+    this.dirtyObservationIds.add(copy.id);
+    return copy;
+  }
+
+  public async assertObservationDoesNotExist(id: string, proposalId?: string): Promise<void> {
+    if (this.observations.has(id)) {
+      throw new RecorderError('DUPLICATE_ENTITY_ID', `Observation [${id}] already exists`, proposalId);
+    }
+    const fromRepo = await ObservedHistoryRepository.getObservation(this.worldId, id);
+    if (fromRepo) {
+      throw new RecorderError('DUPLICATE_ENTITY_ID', `Observation [${id}] already exists`, proposalId);
+    }
+  }
+
+  public getDirtyObservations(): ObservedHistoryRecord[] {
+    return Array.from(this.dirtyObservationIds).map((id) => this.observations.get(id)!);
   }
 
   public async hasLocation(id: string): Promise<boolean> {

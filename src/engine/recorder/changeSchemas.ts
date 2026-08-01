@@ -34,6 +34,15 @@ export const StateChangeOperationEnum = z.enum([
   'COMPLETE_TRANSACTION',
   'FAIL_TRANSACTION',
   'CANCEL_TRANSACTION',
+  'CREATE_DEPENDENCY',
+  'UPDATE_DEPENDENCY',
+  'REMOVE_DEPENDENCY',
+  'CREATE_OBSERVED_HISTORY',
+  'UPDATE_SEED_DEPENDENCIES',
+  'UPDATE_PROJECT_DEPENDENCIES',
+  'REGISTER_WAKE_SIGNAL',
+  'INVALIDATE_TRANSACTION',
+  'PAUSE_TRANSACTION',
 ]);
 
 export type StateChangeOperation = z.infer<typeof StateChangeOperationEnum>;
@@ -141,4 +150,9 @@ export interface CommitResult {
   epoch: number;
   cacheRecovered?: boolean;
   cacheOutOfSync?: boolean;
+  changedTargets?: Array<{
+    targetType: string;
+    targetId: string;
+    changedFieldPaths: string[];
+  }>;
 }

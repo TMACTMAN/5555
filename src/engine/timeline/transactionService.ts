@@ -1,5 +1,5 @@
 import { WorldRepository } from '../world/worldRepository';
-import { recorder } from '../recorder/recorder';
+import { WorldMutationCoordinator } from '../world/worldMutationCoordinator';
 import { StateChangeProposal } from '../recorder/changeSchemas';
 import { EventType, WorldTransaction, ScheduledCheckpoint } from '../../types';
 import { TravelPlanRequest, TravelPlanResult } from './timelineTypes';
@@ -190,7 +190,7 @@ export class TransactionService {
   public static async planTravel(req: TravelPlanRequest): Promise<TravelPlanResult> {
     const prepared = await TransactionService.buildTravelPlanProposals(req);
 
-    const commitResult = await recorder.commit(req.worldId, prepared.proposals);
+    const commitResult = await WorldMutationCoordinator.commitWithCausalPropagation(req.worldId, prepared.proposals);
     if (!commitResult.success) {
       throw new TimelineError(
         'RECORDER_COMMIT_FAILED',
@@ -300,7 +300,7 @@ export class TransactionService {
     epoch: number
   ): Promise<void> {
     const proposals = await TransactionService.buildCancelTransactionProposals(worldId, transactionId, reason, epoch);
-    const commitResult = await recorder.commit(worldId, proposals);
+    const commitResult = await WorldMutationCoordinator.commitWithCausalPropagation(worldId, proposals);
     if (!commitResult.success) {
       throw new TimelineError(
         'RECORDER_COMMIT_FAILED',
@@ -402,7 +402,7 @@ export class TransactionService {
     epoch: number
   ): Promise<void> {
     const proposals = await TransactionService.buildFailTransactionProposals(worldId, transactionId, reason, epoch);
-    const commitResult = await recorder.commit(worldId, proposals);
+    const commitResult = await WorldMutationCoordinator.commitWithCausalPropagation(worldId, proposals);
     if (!commitResult.success) {
       throw new TimelineError(
         'RECORDER_COMMIT_FAILED',

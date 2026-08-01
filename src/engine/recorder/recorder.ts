@@ -30,6 +30,8 @@ import { RecorderError } from './recorderErrors';
 import { BatchInvariantValidator } from './batchInvariantValidator';
 import { CachePublisher, PreparedCommit } from './cachePublisher';
 import { WorldCacheLoader } from '../world/worldCacheLoader';
+import { DependencyRepository } from '../dependency/dependencyRepository';
+import { ObservedHistoryRepository } from '../history/observedHistoryRepository';
 
 function deepClone<T>(obj: T): T {
   if (obj === undefined || obj === null) return obj;
@@ -182,6 +184,13 @@ export class Recorder {
           await WorldRepository.saveScheduledCheckpoint(worldId, cp);
         }
 
+        for (const dep of prepared.dependencyWrites || []) {
+          await DependencyRepository.saveDependency(worldId, dep);
+        }
+        for (const obs of prepared.observationWrites || []) {
+          await ObservedHistoryRepository.saveObservation(worldId, obs);
+        }
+
         // 2. Events
         for (const evt of prepared.eventWrites) {
           await WorldRepository.saveEvent(worldId, evt);
@@ -272,6 +281,7 @@ export class Recorder {
       errors: [],
       eventsGenerated: prepared.eventWrites,
       epoch: currentEpoch,
+      changedTargets: (prepared as any).changedTargets,
     };
   }
 
@@ -798,6 +808,30 @@ export class Recorder {
           break;
         }
 
+        case 'INVALIDATE_TRANSACTION': {
+          const txId = (entityId || payload.transactionId) as string;
+          const tx = await workingSet.getTransaction(txId);
+          beforeState = deepClone(tx);
+          tx.status = 'INVALIDATED';
+          if (payload.reason) tx.invalidation_reason = payload.reason;
+          tx.updated_at_epoch = effectiveEpoch;
+          workingSet.markTransactionDirty(tx.id);
+          afterState = deepClone(tx);
+          break;
+        }
+
+        case 'PAUSE_TRANSACTION': {
+          const txId = (entityId || payload.transactionId) as string;
+          const tx = await workingSet.getTransaction(txId);
+          beforeState = deepClone(tx);
+          tx.status = 'PAUSED';
+          if (payload.reason) tx.invalidation_reason = payload.reason;
+          tx.updated_at_epoch = effectiveEpoch;
+          workingSet.markTransactionDirty(tx.id);
+          afterState = deepClone(tx);
+          break;
+        }
+
         case 'CANCEL_TRANSACTION': {
           const txId = (entityId || payload.transactionId) as string;
           const tx = await workingSet.getTransaction(txId);
@@ -808,6 +842,118 @@ export class Recorder {
           tx.updated_at_epoch = effectiveEpoch;
           workingSet.markTransactionDirty(tx.id);
           afterState = deepClone(tx);
+          break;
+        }
+
+        case 'CREATE_DEPENDENCY': {
+          if (!payload.dependency && !payload.edge) {
+            throw new RecorderError('INVARIANT_FAILED', 'CREATE_DEPENDENCY missing payload.dependency or payload.edge', prop.id);
+          }
+          const edge = (payload.dependency || payload.edge) as any;
+          await workingSet.assertDependencyDoesNotExist(edge.id, prop.id);
+          workingSet.addDependency(edge);
+          afterState = deepClone(edge);
+          break;
+        }
+
+        case 'UPDATE_DEPENDENCY': {
+          const depId = (entityId || payload.dependencyId || payload.id) as string;
+          const dep = await workingSet.getDependency(depId);
+          beforeState = deepClone(dep);
+          if (payload.status) dep.status = payload.status;
+          if (payload.invalidationReason) dep.invalidation_reason = payload.invalidationReason;
+          if (payload.lastEvaluatedEpoch) dep.last_evaluated_epoch = payload.lastEvaluatedEpoch;
+          if (payload.invalidatedAtEpoch) dep.invalidated_at_epoch = payload.invalidatedAtEpoch;
+          workingSet.markDependencyDirty(dep.id);
+          afterState = deepClone(dep);
+          break;
+        }
+
+        case 'REMOVE_DEPENDENCY': {
+          const depId = (entityId || payload.dependencyId || payload.id) as string;
+          const dep = await workingSet.getDependency(depId);
+          beforeState = deepClone(dep);
+          dep.status = 'REMOVED';
+          workingSet.markDependencyDirty(dep.id);
+          afterState = deepClone(dep);
+          break;
+        }
+
+        case 'CREATE_OBSERVED_HISTORY': {
+          const obsData = payload.observation || payload;
+          if (!obsData.factPath && !obsData.fact_path) {
+            throw new RecorderError('INVARIANT_FAILED', 'CREATE_OBSERVED_HISTORY missing factPath', prop.id);
+          }
+          const obsRecord = {
+            id: obsData.id || `obs-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+            world_id: worldId,
+            observer_type: obsData.observerType || obsData.observer_type || 'PLAYER',
+            observer_id: obsData.observerId || obsData.observer_id || 'pc-player',
+            subject_type: obsData.subjectType || obsData.subject_type || 'LOCATION',
+            subject_id: obsData.subjectId || obsData.subject_id || '',
+            observation_type: obsData.observationType || obsData.observation_type || 'DIRECT_SIGHT',
+            observed_epoch: obsData.observedEpoch || obsData.observed_epoch || effectiveEpoch,
+            recorded_epoch: obsData.recordedEpoch || obsData.recorded_epoch || effectiveEpoch,
+            fact_path: obsData.factPath || obsData.fact_path || '',
+            observed_value: obsData.observedValue !== undefined ? obsData.observedValue : obsData.observed_value,
+            confidence: obsData.confidence ?? 1.0,
+            source_event_id: obsData.sourceEventId || obsData.source_event_id || null,
+            source_transaction_id: obsData.sourceTransactionId || obsData.source_transaction_id || null,
+            visibility: obsData.visibility || 'PRIVATE',
+            immutable_history: obsData.immutableHistory !== undefined ? Boolean(obsData.immutableHistory) : true,
+            metadata: obsData.metadata || undefined,
+          };
+          workingSet.addObservation(obsRecord as any);
+          afterState = deepClone(obsRecord);
+          break;
+        }
+
+        case 'UPDATE_SEED_DEPENDENCIES': {
+          const seedId = (entityId || payload.seedId) as string;
+          const seed = await workingSet.getSeed(seedId);
+          beforeState = deepClone(seed);
+          if (payload.status) seed.status = payload.status;
+          if (payload.invalidationReason) (seed as any).invalidation_reason = payload.invalidationReason;
+          seed.updated_at_epoch = effectiveEpoch;
+          workingSet.markSeedDirty(seed.id);
+          afterState = deepClone(seed);
+          break;
+        }
+
+        case 'UPDATE_PROJECT_DEPENDENCIES': {
+          const projId = (entityId || payload.projectId) as string;
+          const orgId = payload.organizationId as string;
+          if (orgId) {
+            const org = await workingSet.getOrganization(orgId);
+            beforeState = deepClone(org);
+            if (Array.isArray(org.projects)) {
+              const proj = org.projects.find((p) => p.id === projId);
+              if (proj) {
+                if (payload.status) proj.status = payload.status;
+                if (payload.reason) (proj as any).invalidation_reason = payload.reason;
+              }
+            }
+            workingSet.markOrganizationDirty(org.id);
+            afterState = deepClone(org);
+          }
+          break;
+        }
+
+        case 'REGISTER_WAKE_SIGNAL': {
+          const evt: Event = {
+            id: `evt-wake-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+            type: 'WORLD_STATE',
+            description: `唤醒信号：来源 [${payload.sourceType}:${payload.sourceId}] 原因：${payload.reason}`,
+            involved_entity_ids: [payload.sourceId],
+            cause: { type: source.type, source_id: source.id },
+            effects: [],
+            epoch: effectiveEpoch,
+            resolved: true,
+            resolution_epoch: effectiveEpoch,
+            created_at_epoch: effectiveEpoch,
+          };
+          eventWrites.push(evt);
+          afterState = evt;
           break;
         }
 
@@ -832,6 +978,49 @@ export class Recorder {
       changeLogs.push(logEntry);
     }
 
+    // Build changedTargets for DependencyImpactService
+    const changedTargets: Array<{
+      targetType: string;
+      targetId: string;
+      changedFieldPaths: string[];
+    }> = [];
+
+    for (const char of workingSet.getDirtyCharacters()) {
+      changedTargets.push({
+        targetType: 'CHARACTER',
+        targetId: char.id,
+        changedFieldPaths: ['status', 'presence_state', 'location_id', 'attributes', 'resources'],
+      });
+    }
+    for (const loc of workingSet.getDirtyLocations()) {
+      changedTargets.push({
+        targetType: 'LOCATION',
+        targetId: loc.id,
+        changedFieldPaths: ['status', 'security', 'features'],
+      });
+    }
+    for (const org of workingSet.getDirtyOrganizations()) {
+      changedTargets.push({
+        targetType: 'ORGANIZATION',
+        targetId: org.id,
+        changedFieldPaths: ['status', 'leader_id', 'projects'],
+      });
+    }
+    for (const seed of workingSet.getDirtySeeds()) {
+      changedTargets.push({
+        targetType: 'SEED',
+        targetId: seed.id,
+        changedFieldPaths: ['status', 'progress'],
+      });
+    }
+    for (const tx of workingSet.getDirtyTransactions()) {
+      changedTargets.push({
+        targetType: 'TRANSACTION',
+        targetId: tx.id,
+        changedFieldPaths: ['status', 'current_checkpoint_index'],
+      });
+    }
+
     // Batch Invariant Check on the final working set
     const finalSnapshot = worldSnapshotAfter || await workingSet.getWorldSnapshot();
     await BatchInvariantValidator.validateBatch(workingSet, finalSnapshot, beforeEpoch);
@@ -846,9 +1035,12 @@ export class Recorder {
       truthWrites: workingSet.getDirtyTruths(),
       transactionWrites: workingSet.getDirtyTransactions(),
       checkpointWrites: workingSet.getDirtyCheckpoints(),
+      dependencyWrites: workingSet.getDirtyDependencies(),
+      observationWrites: workingSet.getDirtyObservations(),
       eventWrites,
       changeLogs,
       worldSnapshotAfter,
+      changedTargets,
     };
   }
 }

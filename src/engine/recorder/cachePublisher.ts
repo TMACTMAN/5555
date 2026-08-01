@@ -2,6 +2,9 @@ import { globalWorld, setRecorderWriteContext } from '../worldState';
 import { Character, Location, Organization, Seed, HiddenTruth, Event, WorldSnapshot, StateChangeLogEntry, WorldTransaction, ScheduledCheckpoint } from '../../types';
 import { StateChangeProposal } from './changeSchemas';
 
+import { DependencyEdge } from '../dependency/dependencyTypes';
+import { ObservedHistoryRecord } from '../history/observedHistoryTypes';
+
 export interface PreparedCommit {
   worldId: string;
   proposals?: StateChangeProposal[];
@@ -12,9 +15,16 @@ export interface PreparedCommit {
   truthWrites: HiddenTruth[];
   transactionWrites: WorldTransaction[];
   checkpointWrites: ScheduledCheckpoint[];
+  dependencyWrites: DependencyEdge[];
+  observationWrites: ObservedHistoryRecord[];
   eventWrites: Event[];
   changeLogs: StateChangeLogEntry[];
   worldSnapshotAfter?: WorldSnapshot;
+  changedTargets?: Array<{
+    targetType: string;
+    targetId: string;
+    changedFieldPaths: string[];
+  }>;
 }
 
 function deepClone<T>(obj: T): T {

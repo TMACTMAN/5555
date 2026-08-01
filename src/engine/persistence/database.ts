@@ -58,6 +58,16 @@ export class DatabaseManager {
       "ALTER TABLE world_transactions ADD COLUMN last_valid_location_id TEXT;",
       "ALTER TABLE scheduled_checkpoints ADD COLUMN sequence INTEGER NOT NULL DEFAULT 0;",
       "ALTER TABLE locations ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE';",
+      "ALTER TABLE dependency_edges ADD COLUMN expected_condition_json TEXT;",
+      "ALTER TABLE dependency_edges ADD COLUMN failure_policy TEXT NOT NULL DEFAULT 'FAIL_SOURCE';",
+      "ALTER TABLE dependency_edges ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE';",
+      "ALTER TABLE dependency_edges ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;",
+      "ALTER TABLE dependency_edges ADD COLUMN created_at_epoch INTEGER NOT NULL DEFAULT 1;",
+      "ALTER TABLE dependency_edges ADD COLUMN last_evaluated_epoch INTEGER;",
+      "ALTER TABLE dependency_edges ADD COLUMN invalidated_at_epoch INTEGER;",
+      "ALTER TABLE dependency_edges ADD COLUMN invalidation_reason TEXT;",
+      "ALTER TABLE dependency_edges ADD COLUMN metadata_json TEXT;",
+      "ALTER TABLE worlds ADD COLUMN world_creation_state TEXT NOT NULL DEFAULT 'CREATED';",
     ];
     for (const sql of migrations) {
       try {

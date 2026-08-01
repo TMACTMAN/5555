@@ -8,10 +8,49 @@ CREATE TABLE IF NOT EXISTS worlds (
   name TEXT NOT NULL,
   description TEXT NOT NULL,
   preset_type TEXT NOT NULL DEFAULT 'default',
+  world_creation_state TEXT NOT NULL DEFAULT 'CREATED',
   current_epoch INTEGER NOT NULL DEFAULT 1,
   random_seed INTEGER NOT NULL DEFAULT 12345,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS world_profiles (
+  world_id TEXT PRIMARY KEY,
+
+  genre TEXT NOT NULL,
+  genre_version INTEGER NOT NULL,
+
+  display_name TEXT NOT NULL,
+  world_description TEXT NOT NULL,
+
+  cosmology TEXT NOT NULL,
+  power_system TEXT NOT NULL,
+  social_structure TEXT NOT NULL,
+  economy_system TEXT NOT NULL,
+  geography_style TEXT NOT NULL,
+
+  currency_name TEXT NOT NULL,
+  energy_name TEXT NOT NULL,
+
+  narrator_role TEXT NOT NULL,
+  narration_style TEXT NOT NULL,
+
+  profession_lexicon_json TEXT NOT NULL,
+  faction_lexicon_json TEXT NOT NULL,
+  location_lexicon_json TEXT NOT NULL,
+  creature_lexicon_json TEXT NOT NULL,
+  item_lexicon_json TEXT NOT NULL,
+
+  allowed_concepts_json TEXT NOT NULL,
+  forbidden_concepts_json TEXT NOT NULL,
+
+  default_player_origin TEXT NOT NULL,
+  default_player_title TEXT NOT NULL,
+
+  created_at_epoch INTEGER NOT NULL,
+  updated_at_epoch INTEGER NOT NULL,
+  FOREIGN KEY(world_id) REFERENCES worlds(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS characters (
@@ -207,10 +246,59 @@ CREATE TABLE IF NOT EXISTS dependency_edges (
   world_id TEXT NOT NULL,
   source_type TEXT NOT NULL,
   source_id TEXT NOT NULL,
+  dependency_type TEXT NOT NULL,
   target_type TEXT NOT NULL,
   target_id TEXT NOT NULL,
-  dependency_type TEXT NOT NULL,
-  condition_json TEXT,
+  expected_condition_json TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  failure_policy TEXT NOT NULL DEFAULT 'FAIL_SOURCE',
+  priority INTEGER NOT NULL DEFAULT 0,
+  created_at_epoch INTEGER NOT NULL DEFAULT 1,
+  last_evaluated_epoch INTEGER,
+  invalidated_at_epoch INTEGER,
+  invalidation_reason TEXT,
+  metadata_json TEXT,
+  FOREIGN KEY(world_id) REFERENCES worlds(id) ON DELETE CASCADE,
+  UNIQUE(world_id, source_type, source_id, dependency_type, target_type, target_id)
+);
+
+CREATE TABLE IF NOT EXISTS observed_history (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL,
+  observer_type TEXT NOT NULL,
+  observer_id TEXT NOT NULL,
+  subject_type TEXT NOT NULL,
+  subject_id TEXT NOT NULL,
+  observation_type TEXT NOT NULL,
+  observed_epoch INTEGER NOT NULL,
+  recorded_epoch INTEGER NOT NULL,
+  fact_path TEXT NOT NULL,
+  observed_value_json TEXT,
+  confidence REAL NOT NULL DEFAULT 1.0,
+  source_event_id TEXT,
+  source_transaction_id TEXT,
+  visibility TEXT NOT NULL DEFAULT 'PRIVATE',
+  immutable_history INTEGER NOT NULL DEFAULT 1,
+  metadata_json TEXT,
+  FOREIGN KEY(world_id) REFERENCES worlds(id) ON DELETE CASCADE,
+  UNIQUE(world_id, observer_type, observer_id, subject_type, subject_id, observed_epoch, fact_path)
+);
+
+CREATE TABLE IF NOT EXISTS causal_impacts (
+  id TEXT PRIMARY KEY,
+  world_id TEXT NOT NULL,
+  trigger_type TEXT NOT NULL,
+  trigger_id TEXT NOT NULL,
+  affected_source_type TEXT NOT NULL,
+  affected_source_id TEXT NOT NULL,
+  dependency_edge_id TEXT,
+  impact_type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'PENDING',
+  reason TEXT NOT NULL,
+  created_at_epoch INTEGER NOT NULL,
+  processed_at_epoch INTEGER,
+  proposal_ids_json TEXT,
+  metadata_json TEXT,
   FOREIGN KEY(world_id) REFERENCES worlds(id) ON DELETE CASCADE
 );
 

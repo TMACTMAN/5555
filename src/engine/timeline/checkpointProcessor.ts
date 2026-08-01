@@ -1,5 +1,5 @@
 import { WorldRepository } from '../world/worldRepository';
-import { recorder } from '../recorder/recorder';
+import { WorldMutationCoordinator } from '../world/worldMutationCoordinator';
 import { StateChangeProposal } from '../recorder/changeSchemas';
 import { EventType, ScheduledCheckpoint } from '../../types';
 import { TransactionService } from './transactionService';
@@ -48,7 +48,7 @@ export class CheckpointProcessor {
         const tx = await WorldRepository.getWorldTransaction(worldId, cp.transaction_id);
         if (!tx || (tx.status !== 'IN_PROGRESS' && tx.status !== 'PLANNED' && tx.status !== 'DELAYED')) {
           // Mark checkpoint as CANCELLED since parent transaction is inactive or missing
-          const staleResult = await recorder.commit(worldId, [
+          const staleResult = await WorldMutationCoordinator.commitWithCausalPropagation(worldId, [
             {
               id: `prop-cp-stale-${cp.id}`,
               operation: 'UPDATE_SCHEDULED_CHECKPOINT',
@@ -86,7 +86,7 @@ export class CheckpointProcessor {
             reason,
             currentEpoch
           );
-          const failResult = await recorder.commit(worldId, failProposals);
+          const failResult = await WorldMutationCoordinator.commitWithCausalPropagation(worldId, failProposals);
           if (failResult.success) {
             failedTransactions.push(tx.id);
             eventsGenerated.push(...failResult.eventsGenerated);
@@ -183,7 +183,7 @@ export class CheckpointProcessor {
                 source: { type: 'SCHEDULER', id: 'checkpointProcessor' },
               });
 
-              const delayResult = await recorder.commit(worldId, delayProposals);
+              const delayResult = await WorldMutationCoordinator.commitWithCausalPropagation(worldId, delayProposals);
               if (delayResult.success) {
                 eventsGenerated.push(...delayResult.eventsGenerated);
               } else {
@@ -199,7 +199,7 @@ export class CheckpointProcessor {
                 reason,
                 currentEpoch
               );
-              const failResult = await recorder.commit(worldId, failProposals);
+              const failResult = await WorldMutationCoordinator.commitWithCausalPropagation(worldId, failProposals);
               if (failResult.success) {
                 failedTransactions.push(tx.id);
                 eventsGenerated.push(...failResult.eventsGenerated);
@@ -240,7 +240,7 @@ export class CheckpointProcessor {
             reason,
             currentEpoch
           );
-          const failResult = await recorder.commit(worldId, failProposals);
+          const failResult = await WorldMutationCoordinator.commitWithCausalPropagation(worldId, failProposals);
           if (failResult.success) {
             failedTransactions.push(tx.id);
             eventsGenerated.push(...failResult.eventsGenerated);
@@ -378,7 +378,7 @@ export class CheckpointProcessor {
           }
         }
 
-        const commitResult = await recorder.commit(worldId, proposals);
+        const commitResult = await WorldMutationCoordinator.commitWithCausalPropagation(worldId, proposals);
         if (commitResult.success) {
           processedCount++;
           eventsGenerated.push(...commitResult.eventsGenerated);

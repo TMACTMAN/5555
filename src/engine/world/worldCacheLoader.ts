@@ -11,8 +11,12 @@ export class WorldCacheLoader {
       globalWorld.snapshot.epoch = snapshot.epoch;
       globalWorld.snapshot.world_name = snapshot.world_name;
       globalWorld.snapshot.world_description = snapshot.world_description;
+      globalWorld.snapshot.world_creation_state = snapshot.world_creation_state;
       globalWorld.snapshot.seed = snapshot.seed;
       globalWorld.snapshot.completed_epochs = snapshot.completed_epochs;
+
+      const profile = await WorldRepository.getWorldProfile(worldId);
+      globalWorld.profile = profile;
 
       const chars = await WorldRepository.getAllCharacters(worldId);
       globalWorld.characters.clear();

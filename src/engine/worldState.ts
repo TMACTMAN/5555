@@ -132,6 +132,8 @@ function createGuardedArray<T>(arr: T[]): T[] {
   return proxy as any;
 }
 
+import { WorldProfile } from './worldProfile/worldProfileTypes';
+
 export class WorldDataStore {
   private _runtimeWriteLocked: boolean = false;
 
@@ -145,6 +147,7 @@ export class WorldDataStore {
   }
 
   private _snapshot!: WorldSnapshot;
+  private _profile: WorldProfile | null = null;
   private _characters: Map<string, Character> = createGuardedMap(new Map());
   private _organizations: Map<string, Organization> = createGuardedMap(new Map());
   private _locations: Map<string, Location> = createGuardedMap(new Map());
@@ -152,6 +155,12 @@ export class WorldDataStore {
   private _seeds: Map<string, Seed> = createGuardedMap(new Map());
   private _events: Event[] = createGuardedArray([]);
   private _hiddenTruths: Map<string, HiddenTruth> = createGuardedMap(new Map());
+
+  public get profile(): WorldProfile | null { return this._profile; }
+  public set profile(val: WorldProfile | null) {
+    assertRecorderWriteContext();
+    this._profile = val;
+  }
 
   public get snapshot(): WorldSnapshot { return this._snapshot; }
   public set snapshot(val: WorldSnapshot) {

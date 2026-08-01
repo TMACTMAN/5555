@@ -1,7 +1,7 @@
 import { WakeSignal, Character } from '../types';
 import { globalWorld } from './worldState';
 import { check7Invariants } from './invariants';
-import { recorder } from './recorder/recorder';
+import { WorldMutationCoordinator } from './world/worldMutationCoordinator';
 import { StateChangeProposal } from './recorder/changeSchemas';
 import { GlobalTimeline } from './timeline/globalTimeline';
 
@@ -148,8 +148,8 @@ export class SchedulerEngine {
       });
     }
 
-    // Commit all proposals via Recorder
-    const commitResult = await recorder.commit(worldId, proposals);
+    // Commit all proposals via WorldMutationCoordinator
+    const commitResult = await WorldMutationCoordinator.commitWithCausalPropagation(worldId, proposals);
     if (!commitResult.success) {
       return {
         epoch: globalWorld.snapshot.epoch,

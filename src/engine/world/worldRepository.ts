@@ -1,4 +1,9 @@
 import { dbManager } from '../persistence/database';
+import { DependencyRepository } from '../dependency/dependencyRepository';
+import { ObservedHistoryRepository } from '../history/observedHistoryRepository';
+import { DependencySourceType, DependencyTargetType } from '../dependency/dependencyTypes';
+import { ObserverType } from '../history/observedHistoryTypes';
+import { WorldProfile } from '../worldProfile/worldProfileTypes';
 import {
   WorldSnapshot,
   Character,
@@ -17,6 +22,133 @@ import {
 } from '../../types';
 
 export class WorldRepository {
+  // === WORLD PROFILE ===
+  public static async saveWorldProfile(worldId: string, profile: WorldProfile): Promise<void> {
+    await dbManager.run(
+      `INSERT INTO world_profiles (
+        world_id, genre, genre_version, display_name, world_description,
+        cosmology, power_system, social_structure, economy_system, geography_style,
+        currency_name, energy_name, narrator_role, narration_style,
+        profession_lexicon_json, faction_lexicon_json, location_lexicon_json, creature_lexicon_json, item_lexicon_json,
+        allowed_concepts_json, forbidden_concepts_json, default_player_origin, default_player_title,
+        created_at_epoch, updated_at_epoch
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(world_id) DO UPDATE SET
+        genre = excluded.genre,
+        genre_version = excluded.genre_version,
+        display_name = excluded.display_name,
+        world_description = excluded.world_description,
+        cosmology = excluded.cosmology,
+        power_system = excluded.power_system,
+        social_structure = excluded.social_structure,
+        economy_system = excluded.economy_system,
+        geography_style = excluded.geography_style,
+        currency_name = excluded.currency_name,
+        energy_name = excluded.energy_name,
+        narrator_role = excluded.narrator_role,
+        narration_style = excluded.narration_style,
+        profession_lexicon_json = excluded.profession_lexicon_json,
+        faction_lexicon_json = excluded.faction_lexicon_json,
+        location_lexicon_json = excluded.location_lexicon_json,
+        creature_lexicon_json = excluded.creature_lexicon_json,
+        item_lexicon_json = excluded.item_lexicon_json,
+        allowed_concepts_json = excluded.allowed_concepts_json,
+        forbidden_concepts_json = excluded.forbidden_concepts_json,
+        default_player_origin = excluded.default_player_origin,
+        default_player_title = excluded.default_player_title,
+        created_at_epoch = excluded.created_at_epoch,
+        updated_at_epoch = excluded.updated_at_epoch`,
+      [
+        worldId,
+        profile.genre,
+        profile.genre_version,
+        profile.display_name,
+        profile.world_description,
+        profile.cosmology,
+        profile.power_system,
+        profile.social_structure,
+        profile.economy_system,
+        profile.geography_style,
+        profile.currency_name,
+        profile.energy_name,
+        profile.narrator_role,
+        profile.narration_style,
+        JSON.stringify(profile.profession_lexicon || []),
+        JSON.stringify(profile.faction_lexicon || []),
+        JSON.stringify(profile.location_lexicon || []),
+        JSON.stringify(profile.creature_lexicon || []),
+        JSON.stringify(profile.item_lexicon || []),
+        JSON.stringify(profile.allowed_concepts || []),
+        JSON.stringify(profile.forbidden_concepts || []),
+        profile.default_player_origin,
+        profile.default_player_title,
+        profile.created_at_epoch,
+        profile.updated_at_epoch,
+      ]
+    );
+  }
+
+  public static async getWorldProfile(worldId: string): Promise<WorldProfile | null> {
+    const row = await dbManager.get<any>('SELECT * FROM world_profiles WHERE world_id = ?', [worldId]);
+    if (!row) return null;
+    return {
+      world_id: row.world_id,
+      genre: row.genre,
+      genre_version: row.genre_version,
+      display_name: row.display_name,
+      world_description: row.world_description,
+      cosmology: row.cosmology,
+      power_system: row.power_system,
+      social_structure: row.social_structure,
+      economy_system: row.economy_system,
+      geography_style: row.geography_style,
+      currency_name: row.currency_name,
+      energy_name: row.energy_name,
+      narrator_role: row.narrator_role,
+      narration_style: row.narration_style,
+      profession_lexicon: JSON.parse(row.profession_lexicon_json || '[]'),
+      faction_lexicon: JSON.parse(row.faction_lexicon_json || '[]'),
+      location_lexicon: JSON.parse(row.location_lexicon_json || '[]'),
+      creature_lexicon: JSON.parse(row.creature_lexicon_json || '[]'),
+      item_lexicon: JSON.parse(row.item_lexicon_json || '[]'),
+      allowed_concepts: JSON.parse(row.allowed_concepts_json || '[]'),
+      forbidden_concepts: JSON.parse(row.forbidden_concepts_json || '[]'),
+      default_player_origin: row.default_player_origin,
+      default_player_title: row.default_player_title,
+      created_at_epoch: row.created_at_epoch,
+      updated_at_epoch: row.updated_at_epoch,
+    };
+  }
+
+  public static async deleteWorldProfile(worldId: string): Promise<void> {
+    await dbManager.run('DELETE FROM world_profiles WHERE world_id = ?', [worldId]);
+  }
+
+  public static async deleteWorldData(worldId: string): Promise<void> {
+    const tables = [
+      'world_profiles',
+      'characters',
+      'locations',
+      'location_edges',
+      'organizations',
+      'world_facts',
+      'hidden_truths',
+      'seeds',
+      'events',
+      'world_transactions',
+      'scheduled_checkpoints',
+      'dependency_edges',
+      'observed_history',
+      'causal_impacts',
+      'observed_intervals',
+      'state_change_log',
+      'worlds',
+    ];
+    for (const table of tables) {
+      await dbManager.run(`DELETE FROM ${table} WHERE ${table === 'worlds' ? 'id' : 'world_id'} = ?`, [worldId]);
+    }
+  }
+
   // === WORLD SNAPSHOT ===
   public static async getWorldSnapshot(worldId: string): Promise<WorldSnapshot | null> {
     const row = await dbManager.get<any>('SELECT * FROM worlds WHERE id = ?', [worldId]);
@@ -25,6 +157,7 @@ export class WorldRepository {
       id: row.id,
       world_name: row.name,
       world_description: row.description,
+      world_creation_state: (row.world_creation_state as 'UNSELECTED' | 'CREATED') || 'CREATED',
       epoch: row.current_epoch,
       seed: row.random_seed,
       created_at: row.created_at,
@@ -40,17 +173,19 @@ export class WorldRepository {
 
   public static async saveWorldSnapshot(snapshot: WorldSnapshot, presetType = 'default'): Promise<void> {
     const now = new Date().toISOString();
+    const creationState = snapshot.world_creation_state || 'CREATED';
     await dbManager.run(
-      `INSERT INTO worlds (id, name, description, preset_type, current_epoch, random_seed, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO worlds (id, name, description, preset_type, world_creation_state, current_epoch, random_seed, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          description = excluded.description,
          preset_type = excluded.preset_type,
+         world_creation_state = excluded.world_creation_state,
          current_epoch = excluded.current_epoch,
          random_seed = excluded.random_seed,
          updated_at = excluded.updated_at`,
-      [snapshot.id, snapshot.world_name, snapshot.world_description, presetType, snapshot.epoch, snapshot.seed, snapshot.created_at || now, now]
+      [snapshot.id, snapshot.world_name, snapshot.world_description, presetType, creationState, snapshot.epoch, snapshot.seed, snapshot.created_at || now, now]
     );
   }
 
@@ -479,6 +614,12 @@ export class WorldRepository {
   }
 
   // === WORLD FACTS ===
+  public static async getFact(worldId: string, factId: string): Promise<WorldFact | null> {
+    const row = await dbManager.get<any>('SELECT * FROM world_facts WHERE world_id = ? AND id = ?', [worldId, factId]);
+    if (!row) return null;
+    return this.mapRowToFact(row);
+  }
+
   public static async getAllFacts(worldId: string): Promise<WorldFact[]> {
     const rows = await dbManager.all<any>('SELECT * FROM world_facts WHERE world_id = ?', [worldId]);
     return rows.map(this.mapRowToFact);
@@ -535,6 +676,12 @@ export class WorldRepository {
   }
 
   // === EVENTS ===
+  public static async getEvent(worldId: string, eventId: string): Promise<Event | null> {
+    const row = await dbManager.get<any>('SELECT * FROM events WHERE world_id = ? AND id = ?', [worldId, eventId]);
+    if (!row) return null;
+    return this.mapRowToEvent(row);
+  }
+
   public static async getRecentEvents(worldId: string, limit = 50): Promise<Event[]> {
     const rows = await dbManager.all<any>(
       'SELECT * FROM events WHERE world_id = ? ORDER BY epoch DESC, created_at_epoch DESC LIMIT ?',
@@ -934,5 +1081,22 @@ export class WorldRepository {
       created_at_epoch: r.created_at_epoch,
       processed_at_epoch: r.processed_at_epoch ?? null,
     };
+  }
+
+  // === DEPENDENCY & OBSERVED HISTORY FACADES ===
+  public static async getDependency(worldId: string, dependencyId: string) {
+    return DependencyRepository.getDependency(worldId, dependencyId);
+  }
+
+  public static async getDependenciesForSource(worldId: string, sourceType: DependencySourceType, sourceId: string) {
+    return DependencyRepository.getDependenciesForSource(worldId, sourceType, sourceId);
+  }
+
+  public static async getObservedHistoryForObserver(worldId: string, observerType: ObserverType, observerId: string) {
+    return ObservedHistoryRepository.getObservationsForObserver(worldId, observerType, observerId);
+  }
+
+  public static async getObservedHistoryForSubject(worldId: string, subjectType: DependencyTargetType, subjectId: string) {
+    return ObservedHistoryRepository.getObservationsForSubject(worldId, subjectType, subjectId);
   }
 }
