@@ -296,4 +296,38 @@ describe('Phase 3 Timeline Integration Suite', () => {
       TransactionStateMachine.assertCanTransition(mockTx, 'CANCELLED');
     }).toThrowError(TimelineError);
   });
+
+  it('12. Claim Lock Recovery: Claimed checkpoint reverts to PENDING on failure and succeeds on retry', async () => {
+    const travelResult = await TransactionService.planTravel({
+      worldId: testWorldId,
+      actorId: 'pc-player',
+      destinationLocationId: 'loc-ruins',
+      startEpoch: 1,
+    });
+
+    const checkpoints = await WorldRepository.getCheckpointsForTransaction(testWorldId, travelResult.transaction.id);
+    const cp = checkpoints[0];
+    expect(cp.status).toBe('PENDING');
+
+    // 1. Claim checkpoint
+    const claimed = await WorldRepository.claimCheckpointForProcessing(testWorldId, cp.id);
+    expect(claimed).toBe(true);
+
+    const cpClaimed = await WorldRepository.getScheduledCheckpoint(testWorldId, cp.id);
+    expect(cpClaimed?.status).toBe('PROCESSING');
+
+    // 2. Simulate commit failure -> release claim
+    const released = await WorldRepository.releaseCheckpointClaim(testWorldId, cp.id);
+    expect(released).toBe(true);
+
+    const cpReleased = await WorldRepository.getScheduledCheckpoint(testWorldId, cp.id);
+    expect(cpReleased?.status).toBe('PENDING');
+
+    // 3. Retry processing -> succeeds
+    const procRes = await CheckpointProcessor.processDueCheckpoints(testWorldId, 2);
+    expect(procRes.processedCount).toBe(1);
+
+    const cpFinal = await WorldRepository.getScheduledCheckpoint(testWorldId, cp.id);
+    expect(cpFinal?.status).toBe('PROCESSED');
+  });
 });

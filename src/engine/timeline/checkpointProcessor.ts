@@ -212,32 +212,42 @@ export class CheckpointProcessor {
         }
 
         // 4. Destination / Target Location Existence & Validity Check
-        if (targetLocId) {
-          const destLoc = await WorldRepository.getLocation(worldId, targetLocId);
+        const locationsToCheck = new Set<string>();
+        if (targetLocId) locationsToCheck.add(targetLocId);
+        if (tx.destination_location_id) locationsToCheck.add(tx.destination_location_id);
+
+        let invalidLocId: string | null = null;
+        for (const locId of locationsToCheck) {
+          const loc = await WorldRepository.getLocation(worldId, locId);
           const isLocInvalid =
-            !destLoc ||
-            destLoc.status === 'DESTROYED' ||
-            destLoc.status === 'BLOCKED' ||
-            destLoc.status === 'INACCESSIBLE' ||
-            destLoc.features?.some((f) => f.state === 'DESTROYED' || f.state === 'BLOCKED');
+            !loc ||
+            loc.status === 'DESTROYED' ||
+            loc.status === 'BLOCKED' ||
+            loc.status === 'INACCESSIBLE' ||
+            loc.features?.some((f) => f.state === 'DESTROYED' || f.state === 'BLOCKED');
 
           if (isLocInvalid) {
-            const reason = `Location [${targetLocId}] no longer exists or is invalid/destroyed/inaccessible`;
-            const failProposals = await TransactionService.buildFailTransactionProposals(
-              worldId,
-              tx.id,
-              reason,
-              currentEpoch
-            );
-            const failResult = await recorder.commit(worldId, failProposals);
-            if (failResult.success) {
-              failedTransactions.push(tx.id);
-              eventsGenerated.push(...failResult.eventsGenerated);
-            } else {
-              await WorldRepository.markCheckpointProcessingFailed(worldId, cp.id, currentEpoch);
-            }
-            continue;
+            invalidLocId = locId;
+            break;
           }
+        }
+
+        if (invalidLocId) {
+          const reason = `Location [${invalidLocId}] no longer exists or is invalid/destroyed/inaccessible`;
+          const failProposals = await TransactionService.buildFailTransactionProposals(
+            worldId,
+            tx.id,
+            reason,
+            currentEpoch
+          );
+          const failResult = await recorder.commit(worldId, failProposals);
+          if (failResult.success) {
+            failedTransactions.push(tx.id);
+            eventsGenerated.push(...failResult.eventsGenerated);
+          } else {
+            await WorldRepository.releaseCheckpointClaim(worldId, cp.id);
+          }
+          continue;
         }
 
         // 5. Construct proposals for successful checkpoint processing
@@ -374,11 +384,11 @@ export class CheckpointProcessor {
           eventsGenerated.push(...commitResult.eventsGenerated);
         } else {
           console.error(`[CheckpointProcessor] Failed to commit checkpoint ${cp.id}:`, commitResult.errors);
-          await WorldRepository.markCheckpointProcessingFailed(worldId, cp.id, currentEpoch);
+          await WorldRepository.releaseCheckpointClaim(worldId, cp.id);
         }
       } catch (err) {
         console.error(`[CheckpointProcessor] Exception processing checkpoint ${cp.id}:`, err);
-        await WorldRepository.markCheckpointProcessingFailed(worldId, cp.id, currentEpoch);
+        await WorldRepository.releaseCheckpointClaim(worldId, cp.id);
       }
     }
 

@@ -149,10 +149,19 @@ export class SchedulerEngine {
     }
 
     // Commit all proposals via Recorder
-    await recorder.commit(worldId, proposals);
+    const commitResult = await recorder.commit(worldId, proposals);
+    if (!commitResult.success) {
+      return {
+        epoch: globalWorld.snapshot.epoch,
+        woken_entities: [],
+        events_generated: 0,
+        catchup_performed: 0,
+        warnings: [`Scheduler epoch commit failed: ${commitResult.errors?.join('; ')}`],
+      };
+    }
 
     // Process global timeline up to current epoch in database
-    await GlobalTimeline.processUntil(worldId, globalWorld.snapshot.epoch);
+    await GlobalTimeline.processUntil(worldId, commitResult.epoch);
 
     // 4. Run safety 7 Invariant Checks
     const invariantRes = check7Invariants(
